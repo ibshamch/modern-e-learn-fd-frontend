@@ -7,7 +7,6 @@ export default function LessonView({ params }) {
 
   // Extract videoId from params.url
   const { url } = params;
-  console.log(url);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen p-4">

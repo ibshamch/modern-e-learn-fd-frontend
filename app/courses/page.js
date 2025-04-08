@@ -118,7 +118,7 @@ export default function Courses() {
           <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
             {filteredCourses.map((course) => (
               <div
-                key={course.id}
+                key={course.slug}
                 className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-300"
               >
                 {course.attributes.thumbnail?.data && (

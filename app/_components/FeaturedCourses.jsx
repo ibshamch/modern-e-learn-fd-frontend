@@ -2,9 +2,7 @@ import axios from "axios";
 
 async function getFeaturedCourses() {
   try {
-    const response = await axios.get(
-      "http://localhost:1337/api/courses?filters[isFeatured][$eq]=true&populate=thumbnail&fields[0]=title&fields[1]=slug&fields[2]=description&fields[3]=duration&fields[4]=difficulty"
-    );
+    const response = await axios.get("http://localhost:1337/api/courses");
     return response.data.data;
   } catch (error) {
     console.error("Error fetching courses:", error);
@@ -14,6 +12,7 @@ async function getFeaturedCourses() {
 
 export default async function FeaturedCourses() {
   const courses = await getFeaturedCourses();
+  console.log(courses);
   return (
     <main className="container mx-auto px-4 py-8">
       <h2 className="text-3xl font-bold text-gray-800 mb-8 text-center">
@@ -29,7 +28,7 @@ export default async function FeaturedCourses() {
             >
               {/* Placeholder for future thumbnail */}
               <div className="bg-gray-200 h-48 flex items-center justify-center">
-                <span className="text-gray-500">Course Image</span>
+                <img src={course.attributes.logoURL} alt="courseCover" />
               </div>
 
               <div className="p-6">

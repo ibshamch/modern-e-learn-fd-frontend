@@ -2,10 +2,14 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import axios from "axios";
 
 export default function Dashboard() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [enrolledCourses, setEnrolledCourses] = useState([]);
+  const [coursesLoading, setCoursesLoading] = useState(false);
+  const [userCourses, setUserCourses] = useState([]);
   const router = useRouter();
 
   useEffect(() => {
@@ -13,10 +17,51 @@ export default function Dashboard() {
     if (!storedUser) {
       router.push("/auth/login");
     } else {
-      setUser(JSON.parse(storedUser));
+      const userData = JSON.parse(storedUser);
+      setUser(userData);
       setLoading(false);
+
+      // If student, fetch enrolled courses
+      if (userData.type === "student") {
+        fetchEnrolledCourses(userData.id);
+      } else if (userData.type === "instructor") {
+        fetchUserCourses(userData.username);
+      }
     }
   }, [router]);
+
+  const fetchUserCourses = async (username) => {
+    try {
+      setCoursesLoading(true);
+      const response = await axios.get(
+        "http://localhost:1337/api/courses?populate=*"
+      );
+      const courses = response.data.data.filter(
+        (course) => course.attributes.instructor === username
+      );
+      setUserCourses(courses);
+    } catch (error) {
+      console.error("Error fetching user courses:", error);
+    } finally {
+      setCoursesLoading(false);
+    }
+  };
+
+  const fetchEnrolledCourses = async (userId) => {
+    try {
+      setCoursesLoading(true);
+      const response = await axios.get(
+        `http://localhost:1337/api/users/${userId}?populate=enrolledCourses`
+      );
+      if (response.data.enrolledCourses) {
+        setEnrolledCourses(response.data.enrolledCourses);
+      }
+    } catch (error) {
+      console.error("Error fetching enrolled courses:", error);
+    } finally {
+      setCoursesLoading(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -65,69 +110,109 @@ export default function Dashboard() {
 
             {/* Courses List */}
             <div className="bg-white shadow rounded-lg p-6">
-              <div className="space-y-4">
-                {user.type === "instructor" ? (
-                  // Instructor Courses
-                  <>
-                    <div className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h3 className="font-medium">
-                            Advanced React Patterns
-                          </h3>
-                          <p className="text-sm text-gray-600 mt-1">
-                            42 students enrolled
-                          </p>
-                        </div>
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                          Active
-                        </span>
-                      </div>
-                      <div className="mt-4 flex space-x-3">
-                        <button className="text-sm text-blue-600 hover:text-blue-800">
-                          Edit
-                        </button>
-                        <button className="text-sm text-gray-600 hover:text-gray-800">
-                          View Students
-                        </button>
-                        <button className="text-sm text-gray-600 hover:text-gray-800">
-                          Analytics
-                        </button>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  // Student Courses
-                  <>
-                    <div className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                      <h3 className="font-medium">
-                        Introduction to Web Development
-                      </h3>
-                      <div className="mt-2 h-2 w-full bg-gray-200 rounded-full">
+              {coursesLoading ? (
+                <div className="flex justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {user.type === "instructor" ? (
+                    userCourses.length > 0 ? (
+                      userCourses.map((course) => (
                         <div
-                          className="h-2 bg-blue-600 rounded-full"
-                          style={{ width: "65%" }}
-                        ></div>
+                          key={course.id}
+                          className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
+                        >
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <h3 className="font-medium">
+                                {course.attributes.title}
+                              </h3>
+                              <p className="text-sm text-gray-600 mt-1">
+                                {course.attributes.lessonsNum || 0} lessons •{" "}
+                                {course.attributes.duration} hours •{" "}
+                                {course.attributes.difficulty}
+                              </p>
+                            </div>
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                              {course.attributes.isFeatured
+                                ? "Featured"
+                                : "Active"}
+                            </span>
+                          </div>
+                          <div className="mt-4 flex space-x-3">
+                            <Link
+                              href={`/courses/${course.attributes.slug}`}
+                              className="text-sm text-gray-600 hover:text-gray-800"
+                            >
+                              View Course
+                            </Link>
+                            <button className="text-sm text-gray-600 hover:text-gray-800">
+                              Analytics
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-center py-8 text-gray-500">
+                        You haven't created any courses yet.
+                        <Link
+                          href="/addcourse"
+                          className="ml-2 text-blue-600 hover:underline"
+                        >
+                          Create your first course
+                        </Link>
                       </div>
-                      <p className="mt-1 text-sm text-gray-600">65% complete</p>
+                    )
+                  ) : enrolledCourses.length > 0 ? (
+                    enrolledCourses.map((course) => (
+                      <div
+                        key={course.slug}
+                        className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
+                      >
+                        <h3 className="font-medium">{course.title}</h3>
+                        <div className="mt-2 h-2 w-full bg-gray-200 rounded-full">
+                          <div
+                            className="h-2 bg-blue-600 rounded-full"
+                            style={{ width: `${course.progress || 0}%` }}
+                          ></div>
+                        </div>
+                        <p className="mt-1 text-sm text-gray-600">
+                          {course.progress || 0}% complete
+                        </p>
+                        <button className="mt-3 px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
+                          Continue
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-8 text-gray-500">
+                      You haven't enrolled in any courses yet.
+                      <Link
+                        href="/courses"
+                        className="ml-2 text-blue-600 hover:underline"
+                      >
+                        Browse courses
+                      </Link>
                     </div>
-                  </>
-                )}
-              </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Additional Sections based on user type */}
-            {user.type === "student" && (
+            {user.type === "student" && enrolledCourses.length > 0 && (
               <div className="bg-white shadow rounded-lg p-6">
                 <h2 className="text-xl font-semibold mb-4">
                   Continue Learning
                 </h2>
                 <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
                   <h3 className="font-medium text-blue-800">
-                    Introduction to Web Development
+                    {enrolledCourses[0].title}
                   </h3>
                   <p className="text-sm text-blue-600 mt-1">
-                    Last watched: Variables in JavaScript
+                    Last watched:{" "}
+                    {enrolledCourses[0].lastWatched || "Start learning"}
                   </p>
                   <button className="mt-3 px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
                     Resume

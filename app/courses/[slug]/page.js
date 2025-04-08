@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import axios from "axios";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -17,39 +17,119 @@ async function getCourseData(slug) {
   }
 }
 
+async function getLoggedInUser() {
+  try {
+    // Fetch all users and find the one with isLogged: true
+    const response = await axios.get("http://localhost:1337/api/users");
+    const users = response.data;
+    return users.find((user) => user.isLogged === true) || null;
+  } catch (error) {
+    console.error("Error fetching users:", error);
+    return null;
+  }
+}
+
 export default function CoursePage({ params }) {
   const [course, setCourse] = useState(null);
   const [user, setUser] = useState(null);
+  const [isEnrolled, setIsEnrolled] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [enrolling, setEnrolling] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
     async function fetchData() {
+      setLoading(true);
       const courseData = await getCourseData(params.slug);
       setCourse(courseData);
 
-      // Fetch the logged-in user
       try {
-        const userResponse = await axios.get(
-          "http://localhost:1337/api/users",
-          {
-            withCredentials: true, // Ensures cookies are sent
-          }
-        );
-        const isLoggedInUserArray = userResponse.data.filter((user) => {
-          return user.type === "instructor";
-        });
-        console.log(isLoggedInUserArray);
-        setUser(isLoggedInUserArray[0]);
+        const loggedInUser = await getLoggedInUser();
+        setUser(loggedInUser);
+
+        // Check if user is already enrolled in this course
+        if (
+          loggedInUser?.enrolledCourses?.some((c) => c.slug === params.slug)
+        ) {
+          setIsEnrolled(true);
+        }
       } catch (error) {
         console.error("Error fetching user:", error);
         setUser(null);
+      } finally {
+        setLoading(false);
       }
     }
     fetchData();
   }, [params.slug]);
 
+  const handleEnroll = async () => {
+    console.log("handle enroll function");
+    console.log(user.type);
+
+    try {
+      setEnrolling(true);
+
+      // 1. Get current user data again to ensure we have latest
+      const currentUser = await getLoggedInUser();
+      if (!currentUser) {
+        throw new Error("User not found");
+      }
+
+      const currentEnrolledCourses = currentUser.enrolledCourses || [];
+
+      // 2. Check if already enrolled
+      if (currentEnrolledCourses.some((c) => c.slug === params.slug)) {
+        setIsEnrolled(true);
+        return;
+      }
+
+      // 3. Prepare updated enrolled courses array
+      const updatedEnrolledCourses = [
+        ...currentEnrolledCourses,
+        {
+          slug: params.slug,
+          title: course.attributes.title,
+          enrolledAt: new Date().toISOString(),
+          progress: 0,
+          lastAccessed: new Date().toISOString(),
+        },
+      ];
+
+      console.log(updatedEnrolledCourses);
+      // 4. Update user's enrolledCourses
+      await axios.put(`http://localhost:1337/api/users/${user.id}`, {
+        enrolledCourses: updatedEnrolledCourses,
+      });
+
+      // 5. Update local state
+      setIsEnrolled(true);
+      setUser({
+        ...user,
+        enrolledCourses: updatedEnrolledCourses,
+      });
+    } catch (error) {
+      console.error("Error enrolling in course:", error);
+      alert("Failed to enroll in course. Please try again.");
+    } finally {
+      setEnrolling(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
+
   if (!course) {
-    return <p>Loading...</p>;
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-xl">Course not found</p>
+      </div>
+    );
   }
 
   const {
@@ -63,7 +143,7 @@ export default function CoursePage({ params }) {
   } = course.attributes;
 
   const isLoggedIn = !!user;
-  const isInstructor = user?.type === "instructor";
+  const isStudent = user?.type === "student" || "student ";
 
   return (
     <main className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
@@ -85,25 +165,57 @@ export default function CoursePage({ params }) {
               </div>
 
               {/* Enroll Button */}
-              {isLoggedIn ? (
-                isInstructor ? (
-                  <button
-                    className="w-full md:w-auto bg-gray-400 text-white font-medium py-3 px-8 rounded-lg shadow-md cursor-not-allowed"
-                    disabled
-                  >
-                    Instructors cannot enroll
-                  </button>
-                ) : (
-                  <button className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-8 rounded-lg shadow-md hover:shadow-lg transition-all duration-300">
-                    Enroll Now
-                  </button>
-                )
-              ) : (
+              {!isLoggedIn ? (
                 <button
                   className="w-full md:w-auto bg-red-500 hover:bg-red-600 text-white font-medium py-3 px-8 rounded-lg shadow-md hover:shadow-lg transition-all duration-300"
-                  onClick={() => router.push("/login")}
+                  onClick={() => router.push("/auth/login")}
                 >
                   Login to Enroll
+                </button>
+              ) : isEnrolled ? (
+                <button className="w-full md:w-auto bg-green-600 text-white font-medium py-3 px-8 rounded-lg shadow-md cursor-default">
+                  Enrolled
+                </button>
+              ) : isStudent ? (
+                <button
+                  className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-8 rounded-lg shadow-md hover:shadow-lg transition-all duration-300 flex items-center justify-center"
+                  onClick={handleEnroll}
+                  disabled={enrolling}
+                >
+                  {enrolling ? (
+                    <>
+                      <svg
+                        className="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                      >
+                        <circle
+                          className="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                        ></circle>
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                        ></path>
+                      </svg>
+                      Enrolling...
+                    </>
+                  ) : (
+                    "Enroll Now"
+                  )}
+                </button>
+              ) : (
+                <button
+                  className="w-full md:w-auto bg-gray-400 text-white font-medium py-3 px-8 rounded-lg shadow-md cursor-not-allowed"
+                  disabled
+                >
+                  Only students can enroll
                 </button>
               )}
             </div>
@@ -124,35 +236,55 @@ export default function CoursePage({ params }) {
               </div>
             </div>
 
-            {/* Lessons Section */}
-            <div className="bg-white rounded-xl shadow-md overflow-hidden">
-              <div className="p-8">
-                <h2 className="text-2xl font-bold text-gray-900 mb-6">
-                  Course Curriculum
-                </h2>
-                <div className="space-y-4">
-                  {lessons.map((lesson, index) => (
-                    <Link
-                      href={`/lesson/${lesson.videoURL}`}
-                      key={lesson.courseId}
-                      className="border-b border-gray-200 pb-4 last:border-0"
-                    >
-                      <div className="flex items-start">
-                        <span className="flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-full bg-blue-100 text-blue-800 font-medium mr-4">
-                          {index + 1}
-                        </span>
-                        <div>
-                          <h3 className="text-lg font-medium text-gray-900">
-                            {lesson.title}
-                          </h3>
-                          <p className="text-gray-500 mt-1">{lesson.content}</p>
+            {/* Lessons Section - Only show if enrolled */}
+            {isEnrolled ? (
+              <div className="bg-white rounded-xl shadow-md overflow-hidden">
+                <div className="p-8">
+                  <h2 className="text-2xl font-bold text-gray-900 mb-6">
+                    Course Curriculum
+                  </h2>
+                  <div className="space-y-4">
+                    {lessons.map((lesson, index) => (
+                      <Link
+                        href={`/lesson/${lesson.videoURL}`}
+                        key={lesson.id || index}
+                        className="border-b border-gray-200 pb-4 last:border-0 hover:bg-gray-50 transition-colors duration-200 block p-3 rounded-lg"
+                      >
+                        <div className="flex items-start">
+                          <span className="flex-shrink-0 flex items-center justify-center h-8 w-8 rounded-full bg-blue-100 text-blue-800 font-medium mr-4">
+                            {index + 1}
+                          </span>
+                          <div>
+                            <h3 className="text-lg font-medium text-gray-900">
+                              {lesson.title}
+                            </h3>
+                            <p className="text-gray-500 mt-1">
+                              {lesson.content}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    </Link>
-                  ))}
+                      </Link>
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className="bg-white rounded-xl shadow-md overflow-hidden p-8 text-center">
+                <h3 className="text-lg font-medium text-gray-900 mb-4">
+                  {isLoggedIn
+                    ? isStudent
+                      ? "Enroll in this course to access the lessons"
+                      : "Only students can enroll in courses"
+                    : "Please login as a student to enroll in this course"}
+                </h3>
+                {isLoggedIn && !isStudent && (
+                  <p className="text-gray-600">
+                    Your account type is "{user.type}". Switch to a student
+                    account to enroll.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Sidebar */}
@@ -209,10 +341,40 @@ export default function CoursePage({ params }) {
                   </div>
                 </div>
 
-                {/* Enroll Button (Duplicate for Sidebar) */}
-                {!isInstructor && isLoggedIn && (
-                  <button className="mt-6 w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg shadow-md hover:shadow-lg transition-all duration-300">
-                    Enroll Now
+                {/* Sidebar Enroll Button */}
+                {!isEnrolled && isStudent && (
+                  <button
+                    className="mt-6 w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg shadow-md hover:shadow-lg transition-all duration-300 flex items-center justify-center"
+                    onClick={handleEnroll}
+                    disabled={enrolling}
+                  >
+                    {enrolling ? (
+                      <>
+                        <svg
+                          className="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          ></circle>
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                          ></path>
+                        </svg>
+                        Enrolling...
+                      </>
+                    ) : (
+                      "Enroll Now"
+                    )}
                   </button>
                 )}
               </div>
